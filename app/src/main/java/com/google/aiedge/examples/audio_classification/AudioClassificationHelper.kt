@@ -23,20 +23,17 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.support.common.FileUtil
-import org.tensorflow.lite.support.metadata.MetadataExtractor
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.FloatBuffer
 
 /**
  * Performs classification on sound.
@@ -143,7 +140,10 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
 
     private suspend fun startRecognition(audioArray: ByteArray) {
         val inputShape = interpreter?.getInputTensor(0)?.shape() ?: return
+        val quantizationParameters = interpreter?.getInputTensor(0)?.quantizationParams() ?: return
         val requiredLength = inputShape[1] * inputShape[2] // 3 * 40 = 120 elements
+        val quatizationParametersOutput = interpreter?.getOutputTensor(0)?.quantizationParams() ?: return
+
 
         // Add to sliding window
         if (slidingWindow.size >= SLIDING_WINDOW_SIZE) {
@@ -191,7 +191,7 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
         // Quantization
         combinedArray.forEach { value ->
             val floatValue = value.toFloat()
-            val quantizedValue = (floatValue / 0.10196078568696976 + 128).toInt().coerceIn(-128, 127)
+            val quantizedValue = (floatValue / quantizationParameters.scale + quantizationParameters.zeroPoint).toInt().coerceIn(-128, 127)
             inputBuffer.put(quantizedValue.toByte())
         }
 
@@ -208,8 +208,9 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
             interpreter?.run(inputBuffer, outputBuffer)
 
             outputBuffer.rewind()
-            val rawOutput = outputBuffer.get().toInt()
-            val probability = rawOutput * 0.00390625f
+            val rawOutput = outputBuffer.get().toInt() and 0xFF
+            //quatizationParametersOutput.scale
+            val probability = quatizationParametersOutput.scale * rawOutput - quatizationParametersOutput.zeroPoint
             // Apply probability cutoff
             Log.d(TAG, "probability:${rawOutput} ${probability} ${PROBABILITY_CUTOFF}")
 
@@ -272,7 +273,7 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
         private const val TAG = "SoundClassifier"
         private const val FEATURE_STEP_SIZE = 10
         private const val SLIDING_WINDOW_SIZE = 5
-        private const val PROBABILITY_CUTOFF = 0.97f
+        private const val PROBABILITY_CUTOFF = 0.85f
 
         val DEFAULT_MODEL = TFLiteModel.SpeechCommand
         val DEFAULT_DELEGATE = Delegate.CPU
@@ -287,16 +288,10 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
     }
 
     enum class TFLiteModel(val fileName: String, val labelFile: String, val sampleRate: Int) {
-        YAMNET(
-            "yamnet.tflite",
-            "yamnet_label_list.txt",
-            16000
-        ),
-
         SpeechCommand(
             "okay_nabu.tflite",
             "speech_label.txt",
-            44100
+            16000
         )
     }
 }
