@@ -75,13 +75,10 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
 
     private var job: Job? = null
 
-    private var previousAudioArray: ByteArray? = null
-
     private var audioManager: AudioManager? = null
 
     /** Stop, cancel or reset all necessary variable*/
     fun stop() {
-        previousAudioArray = null
         job?.cancel()
         audioManager?.stopRecord()
         interpreter?.resetVariableTensors()
@@ -124,11 +121,9 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
                 inputShape[1] * inputShape[2],
                 options.overlapFactor
             ).apply {
-                setBufferSize(120)
                 setFeatureStepSize(FEATURE_STEP_SIZE)
             }
 
-            previousAudioArray = ByteArray(0)
             audioManager!!.record().collect {
                 val array = convertShortToInt8(it)
                 startRecognition(array)
@@ -167,15 +162,13 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
         // Combine data from sliding windows
         val combinedArray = ByteArray(requiredLength)
         var position = 0
-        var windowIndex = slidingWindow.size - 1 // Start from most recent window
 
-        while (position < requiredLength && windowIndex >= 0) {
-            val windowData = slidingWindow.elementAt(windowIndex)
+         for (windowData in slidingWindow) {
             val copyLength = minOf(windowData.size, requiredLength - position)
-
-            System.arraycopy(windowData, 0, combinedArray, position, copyLength)
-            position += copyLength
-            windowIndex--
+            if (copyLength > 0) {
+                System.arraycopy(windowData, 0, combinedArray, position, copyLength)
+                position += copyLength
+            }
         }
 
         if (position < requiredLength) {
@@ -205,6 +198,7 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
         val startTime = SystemClock.uptimeMillis()
         try {
             inputBuffer.rewind()
+            outputBuffer.rewind()
             interpreter?.run(inputBuffer, outputBuffer)
 
             outputBuffer.rewind()
@@ -229,26 +223,6 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
 //            }
         } catch (e: Exception) {
             Log.e(TAG, "Inference error: ${e.message}")
-        }
-    }
-
-
-
-    /** Retrieve Map<String, Int> from metadata file */
-    private suspend fun readFileInputStream(inputStream: InputStream): List<String> {
-        return withContext(Dispatchers.IO) {
-            val reader = BufferedReader(InputStreamReader(inputStream))
-
-            val list = mutableListOf<String>()
-            var index = 0
-            var line = ""
-            while (reader.readLine().also { if (it != null) line = it } != null) {
-                list.add(line)
-                index++
-            }
-
-            reader.close()
-            list
         }
     }
 
@@ -279,7 +253,7 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
 
     companion object {
         private const val TAG = "SoundClassifier"
-        private const val FEATURE_STEP_SIZE = 10
+        private const val FEATURE_STEP_SIZE = 5
         private const val SLIDING_WINDOW_SIZE = 5
         private const val PROBABILITY_CUTOFF = 0.85f
 
@@ -287,7 +261,7 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
         val DEFAULT_DELEGATE = Delegate.CPU
         const val DEFAULT_THREAD_COUNT = 2
         const val DEFAULT_RESULT_COUNT = 3
-        const val DEFAULT_OVERLAP = 0.5f
+        const val DEFAULT_OVERLAP = 0f
         const val DEFAULT_PROBABILITY_THRESHOLD = PROBABILITY_CUTOFF
     }
 

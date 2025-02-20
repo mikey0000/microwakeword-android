@@ -27,61 +27,6 @@ class AudioManager(
 
     companion object {
         private const val TAG = "AudioManager"
-        private const val MIN_BUFFER_MULTIPLIER = 2
-    }
-
-    /**
-     * Sets the buffer size with proper validation and optimization
-     * @param size Desired buffer size in bytes
-     */
-    @SuppressLint("MissingPermission")
-    fun setBufferSize(size: Int) {
-        require(size > 0) { "Buffer size must be positive" }
-        
-        try {
-            val minBufferSize = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
-
-            // Ensure buffer is adequate for high-quality audio capture
-            val optimalBufferSize = maxOf(
-                size,
-                minBufferSize * MIN_BUFFER_MULTIPLIER
-            )
-
-            synchronized(this) {
-                // Clean up existing resources
-                audioRecord?.release()
-
-                audioRecord = AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    sampleRate,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    optimalBufferSize
-                ).apply {
-                    if (state != AudioRecord.STATE_INITIALIZED) {
-                        throw IllegalStateException("Failed to initialize AudioRecord")
-                    }
-                }
-
-                bufferSize = optimalBufferSize
-                audioBuffer = ShortArray(optimalBufferSize / 2)
-                
-                // Update overlap buffer if needed
-                if (overlap > 0) {
-                    val overlapSize = (optimalBufferSize * overlap).toInt()
-                    overlapBuffer = ShortArray(overlapSize)
-                }
-            }
-            
-            Log.d(TAG, "Buffer size set to: $optimalBufferSize bytes")
-        } catch (e: Exception) {
-            Log.e(TAG, "Buffer size configuration failed", e)
-            throw IllegalStateException("Failed to configure audio buffer", e)
-        }
     }
 
     /**
@@ -99,7 +44,7 @@ class AudioManager(
                 samplesPerStep = (sampleRate * (stepSize / 1000.0)).toInt()
                 
                 // Validate against buffer size
-                val frameSize = audioBuffer?.size ?: 0
+                val frameSize = bufferSize
                 if (samplesPerStep > frameSize) {
                     throw IllegalArgumentException(
                         "Step size $stepSize ms requires $samplesPerStep samples, " +
@@ -131,7 +76,12 @@ class AudioManager(
             try {
                 initializeAudioRecord(effectiveBufferSize)
                 val localBuffer = ShortArray(effectiveBufferSize)
-                
+
+                if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                    Log.e(TAG, "AudioRecord failed to initialize")
+                    return@flow
+                }
+
                 audioRecord?.startRecording()
 
                 while (currentCoroutineContext().isActive) {
@@ -191,7 +141,6 @@ class AudioManager(
             audioRecord?.stop()
             audioRecord?.release()
             audioRecord = null
-            audioBuffer = null
             overlapBuffer = null
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping recording", e)
