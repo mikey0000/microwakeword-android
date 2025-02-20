@@ -210,9 +210,11 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
             outputBuffer.rewind()
             val rawOutput = outputBuffer.get().toInt() and 0xFF
             //quatizationParametersOutput.scale
-            val probability = quatizationParametersOutput.scale * rawOutput - quatizationParametersOutput.zeroPoint
+            val probability = (rawOutput - quatizationParametersOutput.zeroPoint) * quatizationParametersOutput.scale
             // Apply probability cutoff
-            Log.d(TAG, "probability:${rawOutput} ${probability} ${PROBABILITY_CUTOFF}")
+            if (rawOutput > 4) {
+                Log.d(TAG, "probability:${rawOutput} $probability $PROBABILITY_CUTOFF")
+            }
 
 //            if (probability >= PROBABILITY_CUTOFF) {
             val categories = listOf(Category(
@@ -252,9 +254,15 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
 
     // Convert ShortArray to ByteArray
     private fun convertShortToInt8(shortAudio: ShortArray): ByteArray {
-         return ByteArray(shortAudio.size) { i ->
-            // Proper scaling from 16-bit to 8-bit
-            shortAudio[i].toByte()
+        val max8Bit = Byte.MAX_VALUE.toFloat()
+        // Normalize to fit within the Byte range (-128 to 127)
+        return ByteArray(shortAudio.size) { i ->
+            val normalizedValue = shortAudio[i] / Short.MAX_VALUE.toFloat()
+
+            // Scale to 8-bit signed range [-128, 127]
+            val scaledValue = (normalizedValue * max8Bit)
+
+            scaledValue.toInt().toByte() // Convert to Byte
         }
     }
 

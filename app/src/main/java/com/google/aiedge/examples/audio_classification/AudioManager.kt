@@ -1,10 +1,13 @@
 package com.google.aiedge.examples.audio_classification
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -31,6 +34,7 @@ class AudioManager(
      * Sets the buffer size with proper validation and optimization
      * @param size Desired buffer size in bytes
      */
+    @SuppressLint("MissingPermission")
     fun setBufferSize(size: Int) {
         require(size > 0) { "Buffer size must be positive" }
         
@@ -50,8 +54,7 @@ class AudioManager(
             synchronized(this) {
                 // Clean up existing resources
                 audioRecord?.release()
-                
-                // Initialize new AudioRecord with optimal buffer
+
                 audioRecord = AudioRecord(
                     MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     sampleRate,
@@ -152,6 +155,7 @@ class AudioManager(
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun initializeAudioRecord(bufferSize: Int) {
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
