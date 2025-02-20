@@ -330,9 +330,8 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
     // Convert ShortArray to ByteArray
     private fun convertShortToInt8(shortAudio: ShortArray): ByteArray {
          return ByteArray(shortAudio.size) { i ->
-            // Optimize the conversion by doing it in a single step
-            // Scale to int8 range (-128 to 127)
-            (shortAudio[i].toFloat() / 256.0f).toInt().coerceIn(-128, 127).toByte()
+            // Proper scaling from 16-bit to 8-bit
+            shortAudio[i].toByte()
         }
     }
 
