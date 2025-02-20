@@ -78,8 +78,6 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
 
     private var job: Job? = null
 
-    private lateinit var labels: List<String>
-
     private var previousAudioArray: ByteArray? = null
 
     private var audioManager: AudioManager? = null
@@ -98,7 +96,6 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
         interpreter = try {
             val litertBuffer = FileUtil.loadMappedFile(context, options.currentModel.fileName)
             Log.i(TAG, "Done creating TFLite buffer from ${options.currentModel}")
-            labels = getModelMetadata(litertBuffer)
             Interpreter(litertBuffer, Interpreter.Options().apply {
                 numThreads = options.threadCount
                 useNNAPI = options.delegate == Delegate.NNAPI
@@ -125,12 +122,6 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
             // Inspect input and output specs.
             val inputShape = interpreter?.getInputTensor(0)?.shape() ?: return@withContext
 
-            /**
-             * YAMNET input: float32[15600]
-             * Speech Command input: float32[1,44032]
-             */
-//            val modelInputLength =
-//                inputShape[if (options.currentModel == TFLiteModel.SpeechCommand) 0 else 1]
             audioManager = AudioManager(
                 options.currentModel.sampleRate,
                 inputShape[1] * inputShape[2],
@@ -153,7 +144,6 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
     private suspend fun startRecognition(audioArray: ByteArray) {
         val inputShape = interpreter?.getInputTensor(0)?.shape() ?: return
         val requiredLength = inputShape[1] * inputShape[2] // 3 * 40 = 120 elements
-        val outputShape = interpreter?.getOutputTensor(0)?.shape() ?: return
 
         // Add to sliding window
         if (slidingWindow.size >= SLIDING_WINDOW_SIZE) {
@@ -218,14 +208,14 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
             interpreter?.run(inputBuffer, outputBuffer)
 
             outputBuffer.rewind()
-            val rawOutput = outputBuffer.get().toInt() and 0xFF
+            val rawOutput = outputBuffer.get().toInt()
             val probability = rawOutput * 0.00390625f
             // Apply probability cutoff
             Log.d(TAG, "probability:${rawOutput} ${probability} ${PROBABILITY_CUTOFF}")
 
 //            if (probability >= PROBABILITY_CUTOFF) {
             val categories = listOf(Category(
-                label = labels.firstOrNull() ?: "detected",
+                label = "Okay Nabu detected",
                 score = probability
             ))
 
@@ -239,75 +229,7 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
         }
     }
 
-//    private suspend fun startRecognition(audioArray: ByteArray) {
-//    // Ensure the interpreter is initialized and the input size is correct
-//        val inputShape = interpreter?.getInputTensor(0)?.shape() ?: return
-//        val modelInputLength = inputShape[1] // Assuming input shape is [1, 120]
-//
-//        // Check the size of the audio array
-////        if (audioArray.size != modelInputLength) {
-////            Log.e(TAG, "Audio data size (${audioArray.size}) does not match model input size ($modelInputLength).")
-////            return
-////        }
-//
-//         val adjustedAudioArray = when {
-//            audioArray.size > modelInputLength -> {
-//                // Trim the array to the required length
-//                audioArray.sliceArray(0 until modelInputLength)
-//            }
-//            audioArray.size < modelInputLength -> {
-//                // Pad the array with zeros to the required length
-//                audioArray + ByteArray(modelInputLength - audioArray.size)
-//            }
-//            else -> audioArray // No adjustment needed
-//        }
-//
-//        // Allocate a ByteBuffer for INT8 input
-//        val inputBuffer = ByteBuffer.allocateDirect(modelInputLength).order(ByteOrder.nativeOrder())
-//        inputBuffer.put(adjustedAudioArray)
-//
-//        // Prepare output buffer
-//        val outputShape = interpreter?.getOutputTensor(0)?.shape() ?: return
-//        val modelNumClasses = outputShape[1]
-//        val outputBuffer = FloatBuffer.allocate(modelNumClasses)
-//
-//        // Run inference
-//        val startTime = SystemClock.uptimeMillis()
-//        inputBuffer.rewind()
-//        outputBuffer.rewind()
-//        interpreter?.run(inputBuffer, outputBuffer)
-//
-//        // Process output
-//        val predictionProbs = FloatArray(modelNumClasses)
-//        outputBuffer.rewind()
-//        outputBuffer.get(predictionProbs)
-//
-//        // Interpret the results
-//        val probList = predictionProbs.map {
-//            if (it < options.probabilityThreshold) 0f else it
-//        }
-//
-//        val categories = labels.zip(probList).map {
-//            Category(label = it.first, score = it.second)
-//        }.sortedByDescending { it.score }.take(options.resultCount)
-//        val inferenceTime = SystemClock.uptimeMillis() - startTime
-//        _probabilities.emit(Pair(categories, inferenceTime))
-//    }
 
-
-    /** Load metadata from model*/
-    private suspend fun getModelMetadata(litertBuffer: ByteBuffer): List<String> {
-        val metadataExtractor = MetadataExtractor(litertBuffer)
-        val labels = mutableListOf<String>()
-        if (metadataExtractor.hasMetadata()) {
-            val inputStream = metadataExtractor.getAssociatedFile(options.currentModel.labelFile)
-            labels.addAll(readFileInputStream(inputStream))
-            Log.i(
-                TAG, "Successfully loaded model metadata ${metadataExtractor.associatedFileNames}"
-            )
-        }
-        return labels
-    }
 
     /** Retrieve Map<String, Int> from metadata file */
     private suspend fun readFileInputStream(inputStream: InputStream): List<String> {
@@ -350,7 +272,6 @@ class AudioClassificationHelper(private val context: Context, val options: Optio
         private const val TAG = "SoundClassifier"
         private const val FEATURE_STEP_SIZE = 10
         private const val SLIDING_WINDOW_SIZE = 5
-        private const val TENSOR_ARENA_SIZE = 26080
         private const val PROBABILITY_CUTOFF = 0.97f
 
         val DEFAULT_MODEL = TFLiteModel.SpeechCommand
